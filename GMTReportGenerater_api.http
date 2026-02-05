@@ -1,0 +1,23 @@
+@GMTReportGenerater_api_HostAddress = http://localhost:5010
+
+GET {{GMTReportGenerater_api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
+
+# 获取GMT设备配置信息
+GET {{GMTReportGenerater_api_HostAddress}}/api/GMTReport/devices
+Accept: application/json
+
+###
+
+# 生成GMT月报
+POST {{GMTReportGenerater_api_HostAddress}}/api/GMTReport/generate
+Content-Type: application/json
+
+{
+  "startDate": "2025-12-31 00:00:00",
+  "endDate": "2026-01-21 23:59:59"
+}
+
+###
