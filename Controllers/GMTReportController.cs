@@ -14,19 +14,22 @@ public class GMTReportController : ControllerBase
     private readonly GMTDatabaseService _databaseService;
     private readonly GMTExcelGenerationService _excelGenerationService;
     private readonly GMTExcelGenerationSpecialService _excelGenerationSpecialService;
+    private readonly GMTExcelGenerationQcService _excelGenerationQcService;
 
     public GMTReportController(
         GMTConfigService configService,
         GMTDataProcessingService dataProcessingService,
         GMTDatabaseService databaseService,
         GMTExcelGenerationService excelGenerationService,
-        GMTExcelGenerationSpecialService excelGenerationSpecialService)
+        GMTExcelGenerationSpecialService excelGenerationSpecialService,
+        GMTExcelGenerationQcService excelGenerationQcService)
     {
         _configService = configService;
         _dataProcessingService = dataProcessingService;
         _databaseService = databaseService;
         _excelGenerationService = excelGenerationService;
         _excelGenerationSpecialService = excelGenerationSpecialService;
+        _excelGenerationQcService = excelGenerationQcService;
     }
 
     /// <summary>
@@ -345,6 +348,78 @@ public class GMTReportController : ControllerBase
         catch (Exception ex)
         {
             return StatusCode(500, $"生成Special格式报告时发生错误: {ex.Message}" + Environment.NewLine + $"{ex.StackTrace}");
+        }
+    }
+
+    /// <summary>
+    /// 生成并下载 GMT QC 报表 Excel（POST，与 Delphi suiButton3Click / SPECIAL2 模板逻辑一致）
+    /// </summary>
+    [HttpPost("generate-excel-qc")]
+    public async Task<IActionResult> GenerateGMTExcelQc([FromBody] GMTReportRequest request)
+    {
+        try
+        {
+            if (!TryParseFlexibleDate(request.StartDate, out DateTime startDate))
+                return BadRequest($"开始时间格式无效: {request.StartDate}。");
+            if (!TryParseFlexibleDate(request.EndDate, out DateTime endDate))
+                return BadRequest($"结束时间格式无效: {request.EndDate}。");
+            if (startDate >= endDate)
+                return BadRequest("开始时间必须小于结束时间");
+            if ((endDate - startDate).TotalDays > 365)
+                return BadRequest("时间范围不能超过一年");
+
+            var filePath = await _excelGenerationQcService.GenerateQcReportAsync(startDate, endDate);
+            var fileBytes = await System.IO.File.ReadAllBytesAsync(filePath);
+            var fileName = Path.GetFileName(filePath);
+            return File(fileBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (FileNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, $"生成 QC 报表时发生错误: {ex.Message}" + Environment.NewLine + ex.StackTrace);
+        }
+    }
+
+    /// <summary>
+    /// 生成并下载 GMT QC 报表 Excel（GET 查询参数）
+    /// </summary>
+    [HttpGet("generate-excel-qc")]
+    public async Task<IActionResult> GenerateGMTExcelQcFromQuery([FromQuery] string startDate, [FromQuery] string endDate)
+    {
+        try
+        {
+            if (!TryParseFlexibleDate(startDate, out DateTime parsedStart))
+                return BadRequest($"开始时间格式无效: {startDate}。");
+            if (!TryParseFlexibleDate(endDate, out DateTime parsedEnd))
+                return BadRequest($"结束时间格式无效: {endDate}。");
+            if (parsedStart >= parsedEnd)
+                return BadRequest("开始时间必须小于结束时间");
+            if ((parsedEnd - parsedStart).TotalDays > 365)
+                return BadRequest("时间范围不能超过一年");
+
+            var filePath = await _excelGenerationQcService.GenerateQcReportAsync(parsedStart, parsedEnd);
+            var fileBytes = await System.IO.File.ReadAllBytesAsync(filePath);
+            var fileName = Path.GetFileName(filePath);
+            return File(fileBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (FileNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, $"生成 QC 报表时发生错误: {ex.Message}" + Environment.NewLine + ex.StackTrace);
         }
     }
 

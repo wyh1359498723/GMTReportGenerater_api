@@ -11,6 +11,11 @@ public class GMTConfigService
     private Dictionary<string, DeviceConfig> _deviceConfigs = new();
     private List<string> _gmtDevices = new();
     private List<string> _gmtDevicesAll = new();
+    /// <summary>[GMT] DEVICE_ALL 原始串，用于 pos(device, gmt_device_all) 子串判断</summary>
+    private string _gmtDeviceAllRaw = string.Empty;
+    /// <summary>DEVICE_HBIN 原始串（Delphi：pos(设备前缀, gmt_hbin)&gt;0 时用 HBIN）</summary>
+    private string _gmtDeviceHbinRaw = string.Empty;
+    private string _qcTemplateFileName = string.Empty;
 
     public GMTConfigService(IWebHostEnvironment environment)
     {
@@ -55,7 +60,22 @@ public class GMTConfigService
                 }
                 else if (key == "DEVICE_ALL")
                 {
-                    _gmtDevicesAll = value.Split(',').Select(d => d.Trim()).ToList();
+                    _gmtDeviceAllRaw = value.Trim();
+                    _gmtDevicesAll = value.Split(',').Select(d => d.Trim()).Where(d => d.Length > 0).ToList();
+                }
+                else if (key == "DEVICE_HBIN")
+                {
+                    _gmtDeviceHbinRaw = value.Trim();
+                }
+            }
+            else if (currentSection == "BASIC" && trimmedLine.Contains("="))
+            {
+                // 仅解析 QC 模板键，其余 BASIC 行忽略
+                var partsBasic = trimmedLine.Split('=', 2);
+                var k = partsBasic[0].Trim().Trim('\'', '"');
+                if (k.Equals("GMT-BB30-SPECIAL2", StringComparison.OrdinalIgnoreCase) && partsBasic.Length > 1)
+                {
+                    _qcTemplateFileName = partsBasic[1].Trim().Trim('\'', '"');
                 }
             }
             else if (!string.IsNullOrEmpty(currentSection) && trimmedLine.Contains("="))
@@ -157,6 +177,9 @@ public class GMTConfigService
         return _gmtDevicesAll;
     }
 
+    /// <summary>DEVICE_ALL 原始配置值（Delphi pos(trim(device), gmt_device_all)）</summary>
+    public string GetGMTDeviceAllRaw() => _gmtDeviceAllRaw;
+
     /// <summary>
     /// 获取设备配置
     /// </summary>
@@ -180,5 +203,26 @@ public class GMTConfigService
     public Dictionary<string, DeviceConfig> GetAllDeviceConfigs()
     {
         return _deviceConfigs;
+    }
+
+    /// <summary>
+    /// Delphi pos(gmt_device, gmt_hbin)&gt;0：当前 6 位 device 前缀是否出现在 DEVICE_HBIN 配置串中。
+    /// </summary>
+    public bool UseHardBinForDevicePrefix(string deviceSixCharPrefix)
+    {
+        if (string.IsNullOrEmpty(deviceSixCharPrefix) || string.IsNullOrEmpty(_gmtDeviceHbinRaw))
+            return false;
+        return _gmtDeviceHbinRaw.IndexOf(deviceSixCharPrefix, StringComparison.Ordinal) >= 0;
+    }
+
+    /// <summary>setup.ini [BASIC] 中 GMT-BB30-SPECIAL2 对应的模板文件名</summary>
+    public string GetQcTemplateFileName() => _qcTemplateFileName;
+
+    /// <summary>QC 模板完整路径（ContentRoot/Template/文件名）</summary>
+    public string GetQcTemplateFullPath(string contentRootPath)
+    {
+        if (string.IsNullOrWhiteSpace(_qcTemplateFileName))
+            throw new InvalidOperationException("setup.ini [BASIC] 未配置 GMT-BB30-SPECIAL2 模板文件名");
+        return Path.Combine(contentRootPath, "Template", _qcTemplateFileName);
     }
 }

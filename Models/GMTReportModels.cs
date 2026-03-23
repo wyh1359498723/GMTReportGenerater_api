@@ -164,4 +164,7 @@ public class GMTTestDetail
     public string Tester { get; set; } = string.Empty;
     public DateTime Start_Date { get; set; }
     public string SBIN { get; set; } = string.Empty;
+    /// <summary>硬 Bin 串（QC 报表中部分机型用 HBIN 替代 SBIN）</summary>
+    public string HBIN { get; set; } = string.Empty;
+    public string Card_ID { get; set; } = string.Empty;
 }

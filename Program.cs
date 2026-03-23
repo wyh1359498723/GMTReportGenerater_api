@@ -13,6 +13,7 @@ builder.Services.AddScoped<GMTReportGenerater_api.Services.GMTDataProcessingServ
 builder.Services.AddScoped<GMTReportGenerater_api.Services.GMTDatabaseService>();
 builder.Services.AddScoped<GMTReportGenerater_api.Services.GMTExcelGenerationService>();
 builder.Services.AddScoped<GMTReportGenerater_api.Services.GMTExcelGenerationSpecialService>();
+builder.Services.AddScoped<GMTReportGenerater_api.Services.GMTExcelGenerationQcService>();
 
 var app = builder.Build();
 

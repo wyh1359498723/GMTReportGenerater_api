@@ -1,6 +1,8 @@
 using System.Data;
+using System.Globalization;
 using GMTReportGenerater_api.Models;
 using Oracle.ManagedDataAccess.Client;
+using Oracle.ManagedDataAccess.Types;
 
 namespace GMTReportGenerater_api.Services;
 
@@ -67,6 +69,58 @@ public class GMTDatabaseService
         }
 
         return Convert.ToString(value)?.Trim() ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Oracle 中 start_date 可能为 DATE、TIMESTAMP、VARCHAR2 等，不能对非日期类型调用 GetDateTime。
+    /// </summary>
+    private static DateTime ConvertOracleValueToDateTime(object? value)
+    {
+        if (value == null || value is DBNull)
+            return DateTime.MinValue;
+
+        if (value is DateTime dt)
+            return dt;
+        if (value is DateTimeOffset dto)
+            return dto.DateTime;
+
+        switch (value)
+        {
+            case OracleDate od:
+                return od.IsNull ? DateTime.MinValue : od.Value;
+            case OracleTimeStamp ts:
+                return ts.IsNull ? DateTime.MinValue : ts.Value;
+            case OracleTimeStampTZ tstz:
+                return tstz.IsNull ? DateTime.MinValue : tstz.Value;
+            case OracleTimeStampLTZ ltz:
+                return ltz.IsNull ? DateTime.MinValue : ltz.Value;
+        }
+
+        var s = Convert.ToString(value)?.Trim() ?? string.Empty;
+        if (s.Length == 0)
+            return DateTime.MinValue;
+
+        string[] formats =
+        {
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss.ff",
+            "yyyy/MM/dd HH:mm:ss",
+            "yyyy-MM-dd",
+            "yyyy/MM/dd",
+            "dd-MMM-yy",
+            "dd-MMM-yyyy",
+            "yyyy-MM-ddTHH:mm:ss",
+            "yyyy-MM-ddTHH:mm:ss.fff"
+        };
+
+        if (DateTime.TryParseExact(s, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var exact))
+            return exact;
+        if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
+            return parsed;
+        if (s.Length >= 10 && DateTime.TryParseExact(s.AsSpan(0, 10), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out exact))
+            return exact;
+
+        return DateTime.MinValue;
     }
 
     /// <summary>
@@ -162,12 +216,12 @@ public class GMTDatabaseService
 
             var sql = @"
                 SELECT device
-                FROM p_data_head
+                FROM rtm_admin.rtm_p_data_head
                 WHERE lot_id LIKE 'GMT%'
                     AND ht_code = 'BB30'
                     AND status = 'FINISH'
-                    AND close_date >= TO_DATE(:startDate, 'YYYY-MM-DD HH24:MI:SS')
-                    AND close_date <= TO_DATE(:endDate, 'YYYY-MM-DD HH24:MI:SS')
+                    AND close_date >= :startDate
+                    AND close_date <= :endDate
                 GROUP BY device
                 ORDER BY device";
 
@@ -202,12 +256,12 @@ public class GMTDatabaseService
 
             var sql = @"
                 SELECT SUBSTR(device, 1, 6) as device, cp_no
-                FROM p_data_head
+                FROM rtm_admin.rtm_p_data_head
                 WHERE lot_id LIKE 'GMT%'
                     AND ht_code = 'BB30'
                     AND status = 'FINISH'
-                    AND close_date >= TO_DATE(:startDate, 'YYYY-MM-DD HH24:MI:SS')
-                    AND close_date <= TO_DATE(:endDate, 'YYYY-MM-DD HH24:MI:SS')
+                    AND close_date >= :startDate
+                    AND close_date <= :endDate
                 GROUP BY SUBSTR(device, 1, 6), cp_no
                 ORDER BY SUBSTR(device, 1, 6), cp_no";
 
@@ -246,12 +300,12 @@ public class GMTDatabaseService
 
             var sql = @"
                 SELECT device, wf_lot, serial_no, cp_no, rp_no, tested_wf_qty
-                FROM p_data_head
+                FROM rtm_admin.rtm_p_data_head
                 WHERE lot_id LIKE 'GMT%'
                     AND ht_code = 'BB30'
                     AND status = 'FINISH'
-                    AND close_date >= TO_DATE(:startDate, 'YYYY-MM-DD HH24:MI:SS')
-                    AND close_date <= TO_DATE(:endDate, 'YYYY-MM-DD HH24:MI:SS')
+                    AND close_date >= :startDate
+                    AND close_date <= :endDate
                     AND cp_no = :cpNo
                     AND device LIKE :devicePattern
                 GROUP BY serial_no, device, wf_lot, cp_no, rp_no, tested_wf_qty
@@ -275,7 +329,7 @@ public class GMTDatabaseService
                             Serial_No = reader.GetString(reader.GetOrdinal("serial_no")),
                             CP_No = reader.GetString(reader.GetOrdinal("cp_no")),
                             RP_No = reader.GetString(reader.GetOrdinal("rp_no")),
-                            Tested_WF_Qty = reader.GetInt32(reader.GetOrdinal("tested_wf_qty"))
+                            Tested_WF_Qty = ConvertToInt32(reader.GetValue(reader.GetOrdinal("tested_wf_qty")))
                         });
                     }
                 }
@@ -318,10 +372,10 @@ public class GMTDatabaseService
             await connection.OpenAsync();
 
             var sql = @"
-                SELECT wf_no, tester, start_date, sbin
+                SELECT wf_no, tester, start_date, card_id, sbin, hbin
                 FROM P_data_detail
                 WHERE serial_no = :serialNo
-                ORDER BY CAST(wf_no AS INTEGER)";
+                ORDER BY TO_NUMBER(wf_no)";
 
             using (var command = new OracleCommand(sql, connection))
             {
@@ -331,12 +385,21 @@ public class GMTDatabaseService
                 {
                     while (await reader.ReadAsync())
                     {
+                        var ordStart = reader.GetOrdinal("start_date");
+                        var ordHbin = reader.GetOrdinal("hbin");
+                        var ordCard = reader.GetOrdinal("card_id");
+                        var startDate = reader.IsDBNull(ordStart)
+                            ? DateTime.MinValue
+                            : ConvertOracleValueToDateTime(reader.GetValue(ordStart));
+
                         details.Add(new GMTTestDetail
                         {
                             WF_No = reader.GetString(reader.GetOrdinal("wf_no")),
                             Tester = reader.GetString(reader.GetOrdinal("tester")),
-                            Start_Date = reader.GetDateTime(reader.GetOrdinal("start_date")),
-                            SBIN = reader.GetString(reader.GetOrdinal("sbin"))
+                            Start_Date = startDate,
+                            Card_ID = reader.IsDBNull(ordCard) ? string.Empty : reader.GetString(ordCard),
+                            SBIN = reader.IsDBNull(reader.GetOrdinal("sbin")) ? string.Empty : reader.GetString(reader.GetOrdinal("sbin")),
+                            HBIN = reader.IsDBNull(ordHbin) ? string.Empty : reader.GetString(ordHbin)
                         });
                     }
                 }
@@ -346,37 +409,3 @@ public class GMTDatabaseService
         return details;
     }
 }
-
-/// <summary>
-/// 设备CP组合
-/// </summary>
-public class DeviceCPCombination
-{
-    public string Device { get; set; } = string.Empty;
-    public string CP_No { get; set; } = string.Empty;
-}
-
-/// <summary>
-/// GMT详细记录
-/// </summary>
-public class GMTDetailRecord
-{
-    public string Device { get; set; } = string.Empty;
-    public string WF_Lot { get; set; } = string.Empty;
-    public string Serial_No { get; set; } = string.Empty;
-    public string CP_No { get; set; } = string.Empty;
-    public string RP_No { get; set; } = string.Empty;
-    public int Tested_WF_Qty { get; set; }
-}
-
-/// <summary>
-/// GMT测试详情
-/// </summary>
-public class GMTTestDetail
-{
-    public string WF_No { get; set; } = string.Empty;
-    public string Tester { get; set; } = string.Empty;
-    public DateTime Start_Date { get; set; }
-    public string SBIN { get; set; } = string.Empty;
-}
-
