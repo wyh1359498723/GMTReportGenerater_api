@@ -225,4 +225,7 @@ public class GMTConfigService
             throw new InvalidOperationException("setup.ini [BASIC] 未配置 GMT-BB30-SPECIAL2 模板文件名");
         return Path.Combine(contentRootPath, "Template", _qcTemplateFileName);
     }
+
+    /// <summary>QC 模板第 1 行中 Yield 列的表头文字；仅当列名与此匹配（忽略大小写）时才写入 Yield，并与 Bin 列起始位置对齐。</summary>
+    public string GetQcTotalYieldColumnHeader() => "Total yield";
 }

@@ -48,7 +48,10 @@ public class GMTDataProcessingService
 
                 // 从设备名中提取基础名称（去掉版本后缀，如 NS3607_1B -> NS3607）
                 var baseDeviceName = ExtractBaseDeviceName(deviceName);
-
+                if (deviceName == "NS3607_2A")
+                {
+                    baseDeviceName = "NS3607_2A"; // 特例处理NS3607_2A
+                }
                 // 获取CP配置
                 var cpConfig = _configService.GetCPConfig(baseDeviceName, cpNumber);
                 if (cpConfig == null)
@@ -136,7 +139,7 @@ public class GMTDataProcessingService
                             }
                         }
 
-                        // 计算Yield
+                        // 计算 Yield（字符串供各类报表使用；QC Excel 仅在模板第 1 行表头为 Total yield 的列写入，见 GMTExcelGenerationQcService）
                         var passQty = 0;
                         var totalQty = 0;
                         foreach (var bin in cpConfig.ShowBins)

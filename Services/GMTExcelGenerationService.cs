@@ -1,3 +1,4 @@
+using System.Globalization;
 using ClosedXML.Excel;
 using GMTReportGenerater_api.Models;
 
@@ -120,8 +121,17 @@ public class GMTExcelGenerationService
                                 binCol++;
                             }
                             
-                            // Yield列
-                            worksheet.Cell(row, binCol).Value = dataRow.Yield;
+                            // Yield 列：须为数值（0~1 小数 + 百分比格式），Total 行 AVERAGE 才能计算；纯文本如 "95.5%" 会被 AVERAGE 忽略
+                            var yieldCell = worksheet.Cell(row, binCol);
+                            if (TryParseYieldPercentToExcelFraction(dataRow.Yield, out var yFrac))
+                            {
+                                yieldCell.Value = yFrac;
+                                yieldCell.Style.NumberFormat.Format = "0.0%";
+                            }
+                            else
+                            {
+                                yieldCell.Value = dataRow.Yield;
+                            }
                             
                             row++;
                         }
@@ -198,6 +208,32 @@ public class GMTExcelGenerationService
 
         Console.WriteLine($"[INFO] Excel文件已生成: {outputPath}");
         return outputPath;
+    }
+
+    /// <summary>将 "95.5%" 类字符串解析为 Excel 百分比单元格用的内部小数（0.955）。</summary>
+    private static bool TryParseYieldPercentToExcelFraction(string yield, out double fraction)
+    {
+        fraction = 0;
+        if (string.IsNullOrWhiteSpace(yield))
+            return false;
+
+        var s = yield.Trim();
+        if (s.EndsWith('%'))
+            s = s[..^1].Trim();
+
+        if (double.TryParse(s, NumberStyles.Float, CultureInfo.CurrentCulture, out var pct))
+        {
+            fraction = pct / 100.0;
+            return true;
+        }
+
+        if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out pct))
+        {
+            fraction = pct / 100.0;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
